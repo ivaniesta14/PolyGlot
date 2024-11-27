@@ -29,6 +29,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.darisadesigns.polyglotlina.DictCore;
 import org.darisadesigns.polyglotlina.IPAHandler;
@@ -160,18 +161,13 @@ public class PronunciationMgr {
      * returned
      * @throws java.lang.Exception on malformed regex statements encountered
      */
-    public String getPronunciation(String base) throws Exception {
-        String[] spaceDelimited = base.trim().split(" ");
-        String ret = "";
-        
-        for (String fragment : spaceDelimited) {
-            ret += " " + getPronunciationInternal(fragment);
-        }
-        
-        return ret.trim();
+    public String getPronunciation(String base) {
+        return Arrays.stream(base.strip().split(" "))
+                .map(this::getPronunciationInternal)
+                .collect(Collectors.joining(" "));
     }
     
-    private String getPronunciationInternal(String base) throws Exception {
+    private String getPronunciationInternal(String base) {
         String ret = "";
 
         int[] syllableBreaks = new int[0];
@@ -227,7 +223,7 @@ public class PronunciationMgr {
         return new int[0];
     }
     
-    private int[] concatIntArrays(int [] array1, int[] array2) {
+    private static int[] concatIntArrays(int [] array1, int[] array2) {
         int[] result = Arrays.copyOf(array1, array1.length + array2.length);
         System.arraycopy(array2, 0, result, array1.length, array2.length);
         return result;
@@ -281,11 +277,11 @@ public class PronunciationMgr {
      * @return pronunciation object list. If no perfect match found, empty
      * string returned
      */
-    private List<PronunciationNode> getPronunciationElements(String base, int depth, boolean beginning) throws Exception {
+    private List<PronunciationNode> getPronunciationElements(String base, int depth, boolean beginning)  {
         List<PronunciationNode> ret;
 
         if (depth > PGTUtil.MAX_PROC_RECURSE) {
-            throw new Exception("Max recursions for " + getToolLabel() + " exceeded.");
+            throw new IllegalStateException("Max recursions for " + getToolLabel() + " exceeded.");
         }
         
         // return blank for empty string
@@ -305,7 +301,7 @@ public class PronunciationMgr {
         return ret;
     }
     
-    private List<PronunciationNode> getPronunciationElementsWithRegex(String base, int depth, boolean beginning) throws Exception {
+    private List<PronunciationNode> getPronunciationElementsWithRegex(String base, int depth, boolean beginning) {
         List<PronunciationNode> ret = new ArrayList<>();
         
         for (PronunciationNode curNode : pronunciations) {
@@ -349,7 +345,7 @@ public class PronunciationMgr {
                         break;
                     }
                 } catch (IndexOutOfBoundsException e) {
-                    throw new Exception("The pronunciation pair " + curNode.getValue() + "->"
+                    throw new IllegalArgumentException("The pronunciation pair " + curNode.getValue() + "->"
                             + curNode.getPronunciation() + " is generating a regex error. Please correct."
                             + "\nError: " + e.getLocalizedMessage() + e.getClass().getName(), e);
                 }

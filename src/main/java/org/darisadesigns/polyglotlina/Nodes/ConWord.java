@@ -353,7 +353,7 @@ public class ConWord extends DictNode {
      * @return pronunciation of word
      * @throws java.lang.Exception when regex error encountered
      */
-    public String getPronunciation() throws Exception {
+    public String getPronunciation() {
         String ret = pronunciation;
 
         if (!procOverride && core != null) {

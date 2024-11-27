@@ -50,6 +50,7 @@ import java.awt.Window;
 import java.awt.event.ActionEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionListener;
@@ -74,7 +75,6 @@ import javafx.scene.control.TextField;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Control;
 import javafx.scene.control.ListCell;
-import javafx.scene.control.ListView;
 import javafx.scene.control.TitledPane;
 import javafx.scene.control.Tooltip;
 import javafx.scene.input.KeyCode;
@@ -91,7 +91,6 @@ import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
 import javax.swing.JTextField;
 import javax.swing.KeyStroke;
-import javax.swing.ListModel;
 import javax.swing.SwingUtilities;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -105,6 +104,7 @@ import org.darisadesigns.polyglotlina.Nodes.DictNode;
  *
  * @author draque
  */
+@SuppressWarnings("java:S1450" /* some auto-generated fields are only local variables */)
 public final class ScrLexicon extends PFrame {
 
     private static final String FILTER_LABEL = "Lexicon Filter";
@@ -115,14 +115,14 @@ public final class ScrLexicon extends PFrame {
     private final JFXPanel fxPanel;
     private final TypeNode defTypeValue = new TypeNode();
     private final EtyExternalParent defRootValue = new EtyExternalParent();
-    private final static String DEF_LEX_VALUE = "List of Conlang Words";
+    private static final String DEF_LEX_VALUE = "List of Conlang Words";
     private TextField txtConSrc;
     private TextField txtLocalSrc;
     private TextField txtProcSrc;
     private TextField txtDefSrc;
     private ComboBox<Object> cmbTypeSrc;
     private ComboBox<Object> cmbRootSrc;
-    private boolean curPopulating = false;
+    private volatile boolean curPopulating = false; // TODO(ivaniesta14): use Lock instead
     private boolean namePopulating = false;
     private boolean forceUpdate = false;
     private boolean doNotSave = false;
@@ -145,10 +145,11 @@ public final class ScrLexicon extends PFrame {
         // Lexicon must always wait until menu load is complete
         if (menuParent != null && !menuParent.isMenuReady()) {
             try {
-                _menuParent.getSetupThread().join(PGTUtil.MAX_MS_MENU_STARTUP_WAIT);
+                _menuParent.getSetupThread().join(org.darisadesigns.polyglotlina.PGTUtil.MAX_MS_MENU_STARTUP_WAIT);
             } catch (InterruptedException e) {
                 DesktopIOHandler.getInstance().writeErrorLog(e);
                 new DesktopInfoBox().error("Setup Error", "Error setting up lexicon: " + e.getLocalizedMessage());
+                Thread.currentThread().interrupt();
             }
         }
         
@@ -262,12 +263,9 @@ public final class ScrLexicon extends PFrame {
             
             setupComboBoxesSwing();
             populateProperties();
-                
-            Runnable fxSetup = () -> {
-                setupComboBoxesFX();
-            };
+            
             Platform.setImplicitExit(false);
-            wrapPlatformRunnable(fxSetup);
+            wrapPlatformRunnable(this::setupComboBoxesFX);
 
             ConWord curWord = getCurrentWord();
             saveValuesTo(curWord);
@@ -304,13 +302,14 @@ public final class ScrLexicon extends PFrame {
         String delKey = "delWord";
         int mask;
         if (System.getProperty("os.name").startsWith("Mac")) {
-            mask = KeyEvent.META_DOWN_MASK;
+            mask = InputEvent.META_DOWN_MASK;
         } else {
-            mask = KeyEvent.CTRL_DOWN_MASK;
+            mask = InputEvent.CTRL_DOWN_MASK;
         }
         InputMap im = c.getInputMap();
-        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_EQUALS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | mask), addKey);
-        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_MINUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | mask), delKey);
+        final int modifiers = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | mask;
+		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_EQUALS, modifiers), addKey);
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_MINUS, modifiers), delKey);
         ActionMap am = c.getActionMap();
         am.put(addKey, addAction);
         am.put(delKey, delAction);
@@ -324,19 +323,19 @@ public final class ScrLexicon extends PFrame {
         }
         
         curWord.getClassValues().stream()
-                .filter((curProp) -> (classPropMap.containsKey(curProp.getKey())))
-                .forEachOrdered((curProp) -> {
+                .filter(curProp -> (classPropMap.containsKey(curProp.getKey())))
+                .forEachOrdered(curProp -> {
                     JComponent component = classPropMap.get(curProp.getKey());
 
                     try {
                         WordClass wordClass = core.getWordClassCollection().getNodeById(curProp.getKey());
-                        if (wordClass.isAssociative() && component instanceof JComboBox combo) {
+                        if (wordClass.isAssociative() && component instanceof JComboBox<?> combo) {
                             ConWord associatedWord = core.getWordCollection().getNodeById(curProp.getValue());
                             
                             if (associatedWord.getId() > 0) {
                                 combo.setSelectedItem(associatedWord);
                             }
-                        } else if (component instanceof JComboBox combo) {
+                        } else if (component instanceof JComboBox<?> combo) {
                             WordClassValue value = wordClass.getValueById(curProp.getValue());
                             combo.setSelectedItem(value);
                         }
@@ -348,8 +347,8 @@ public final class ScrLexicon extends PFrame {
                 });
 
         curWord.getClassTextValues().stream()
-                .filter((curProp) -> (classPropMap.containsKey(curProp.getKey())))
-                .forEachOrdered((curProp) -> {
+                .filter(curProp -> (classPropMap.containsKey(curProp.getKey())))
+                .forEachOrdered(curProp -> {
                     JComponent component = classPropMap.get(curProp.getKey());
 
                     try {
@@ -390,6 +389,7 @@ public final class ScrLexicon extends PFrame {
      *
      * @param setTypeId ID of class to set panel up for
      */
+    @SuppressWarnings("java:S3776" /* method way too complex */)
     private void setupClassPanel(int setTypeId) {
         ConWord curWord = getCurrentWord();
 
@@ -443,6 +443,7 @@ public final class ScrLexicon extends PFrame {
                             return;
                         }
 
+                        @SuppressWarnings("hiding")
                         ConWord curWord = getCurrentWord();
                         if (curWord != null) {
                             curWord.setClassTextValue(classId, classText.getText());
@@ -460,7 +461,7 @@ public final class ScrLexicon extends PFrame {
                 
                 comboModel.addElement(" ");
                 
-                var sortedValues = new ArrayList(core.getWordCollection().getAllValues());
+                var sortedValues = new ArrayList<>(core.getWordCollection().getAllValues());
                 core.getWordCollection().safeSort(sortedValues);
                 
                 for (var populateWord : sortedValues) {
@@ -492,9 +493,7 @@ public final class ScrLexicon extends PFrame {
                 comboModel.addElement(" ");
 
                 // populate class dropdown
-                curProp.getValues().forEach((value) -> {
-                    comboModel.addElement(value);
-                });
+                curProp.getValues().forEach(comboModel::addElement);
 
                 classBox.addActionListener((ActionEvent e) -> {
                     if (!curPopulating) {
@@ -525,7 +524,7 @@ public final class ScrLexicon extends PFrame {
 
         if (propList.length == 0) {
             // must include at least one item (even a dummy) to resize for some reason
-            JComboBox dummy = new JComboBox();
+            JComboBox<Void> dummy = new JComboBox<>();
             dummy.setEnabled(false);
             dummy.setSize(1, 0);
             dummy.setVisible(false);
@@ -533,7 +532,7 @@ public final class ScrLexicon extends PFrame {
             pnlClasses.setPreferredSize(new Dimension(4000, 0));
         } else {
             pnlClasses.setMaximumSize(new Dimension(4000, 4000));
-            pnlClasses.setPreferredSize(new Dimension(4000, propList.length * new JComboBox().getPreferredSize().height));
+            pnlClasses.setPreferredSize(new Dimension(4000, propList.length * new JComboBox<Void>().getPreferredSize().height));
         }
 
         pnlClasses.repaint();
@@ -565,6 +564,7 @@ public final class ScrLexicon extends PFrame {
         } catch (InterruptedException e) {
             DesktopIOHandler.getInstance().writeErrorLog(e);
             core.getOSHandler().getInfoBox().error("Form Load Error", "Unable to load Lexicon: " + e.getLocalizedMessage());
+            Thread.currentThread().interrupt();
         }
         
         gridTitlePane.setTooltip(new Tooltip(FILTER_LABEL));
@@ -598,8 +598,7 @@ public final class ScrLexicon extends PFrame {
             if (!setText.isEmpty() || txtConWord.getText().isEmpty()) {
                 txtProc.setText(setText);
             }
-        } catch (Exception e) {
-            // IOHandler.writeErrorLog(e);
+        } catch (IllegalStateException |IllegalArgumentException e) {
             core.getOSHandler().getInfoBox().error("Pronunciation Error", "Could not generate pronunciation: "
                     + e.getLocalizedMessage());
         }
@@ -663,7 +662,7 @@ public final class ScrLexicon extends PFrame {
             populateProperties();
         });
 
-        Platform.runLater(filterThread);
+        Platform.runLater(filterThread::run); // Horrible, but we shouldn't rely on Thread being a Runnable
         gridTitlePane.setExpanded(false);
     }
     
@@ -785,9 +784,9 @@ public final class ScrLexicon extends PFrame {
      * Clears lexicon's search/filter
      * ALWAYS use within Platform.runLater to ensure this is run within a JFX thread
      */
-    private void clearFilter() throws Exception {
+    private void clearFilter() {
         if (!Platform.isFxApplicationThread()) {
-            throw new Exception("This method must be run within a JFX thread.");
+            throw new IllegalCallerException("This method must be run within a JFX thread.");
         }
         
         // if no filter in effect, do nothing
@@ -811,34 +810,35 @@ public final class ScrLexicon extends PFrame {
      * Sets currently displayed word's legality (highlighted fields, error message, etc.)
      */
     private void setWordLegality() {
-        ConWord testWord = getCurrentWord();
-
         if (forceUpdate) {
             return;
         }
 
-        if (testWord != null) {
-            Integer origWordId = testWord.getId();
-            testWord = new ConWord();
-            testWord.setId(origWordId);
-            int typeId = 0;
-            Object selectedType = cmbType.getSelectedItem();
-            if (selectedType != null && !((PComboBox)cmbType).isDefaultValue()) {
-                typeId = ((TypeNode) cmbType.getSelectedItem()).getId();
-            }
-
-            if (curPopulating) {
-                return;
-            }
-
-            testWord.setValue(txtConWord.getText());
-            testWord.setLocalWord(txtLocalWord.getText());
-            testWord.setDefinition(txtDefinition.getText());
-            testWord.setPronunciation(txtProc.getText());
-            testWord.setWordTypeId(typeId);
-            testWord.setRulesOverride(chkRuleOverride.isSelected());
-            testWord.setCore(core);
+        ConWord testWord = getCurrentWord();
+        if(testWord == null) {
+            setWordLegality(null);
+            return;
         }
+
+        Integer origWordId = testWord.getId();
+        testWord = new ConWord();
+        testWord.setId(origWordId);
+        int typeId = 0;
+        if(cmbType.getSelectedItem() != null && !((PComboBox<?>) cmbType).isDefaultValue()) {
+            typeId = ((TypeNode) cmbType.getSelectedItem()).getId();
+        }
+        
+        if(curPopulating) {
+            return;
+        }
+        
+        testWord.setValue(txtConWord.getText());
+        testWord.setLocalWord(txtLocalWord.getText());
+        testWord.setDefinition(txtDefinition.getText());
+        testWord.setPronunciation(txtProc.getText());
+        testWord.setWordTypeId(typeId);
+        testWord.setRulesOverride(chkRuleOverride.isSelected());
+        testWord.setCore(core);
         setWordLegality(testWord);
     }
 
@@ -863,8 +863,8 @@ public final class ScrLexicon extends PFrame {
         if (enableProcGen) {
             try {
                 procLegality = results.getPronunciation();
-            } catch (Exception e) {
-                // IOHandler.writeErrorLog(e);
+            } catch (IllegalArgumentException|IllegalStateException e) {
+                // IOHandler.writeErrorLog(e)
                 enableProcGen = false;
                 procLegality = e.getLocalizedMessage();
             }
@@ -974,12 +974,10 @@ public final class ScrLexicon extends PFrame {
         chkFindBad = new CheckBox();
         chkFindBad.setFont(font);
         chkFindBad.setTooltip(new Tooltip("Filter lexicon entries to find words with illegal values"));
-        chkFindBad.selectedProperty().addListener((ObservableValue<? extends Boolean> ov, Boolean t, Boolean t1) -> {
-            applyIllegalFilter();
-        });
+        chkFindBad.selectedProperty().addListener((unused1, unused2, unused3) -> applyIllegalFilter());
         cmbRootSrc = new ComboBox<>();
-        cmbRootSrc.setCellFactory((ListView<Object> param) -> {
-            final ListCell<Object> cell = new ListCell<Object>() {
+        cmbRootSrc.setCellFactory(unused -> 
+            new ListCell<Object>() {
                 @Override
                 public void updateItem(Object item,
                         boolean empty) {
@@ -994,9 +992,8 @@ public final class ScrLexicon extends PFrame {
                         setText(null);
                     }
                 }
-            };
-            return cell;
-        });
+            }
+        );
 
         grid.setVgap(4);
         grid.setPadding(new Insets(5, 5, 5, 5));
@@ -1033,15 +1030,13 @@ public final class ScrLexicon extends PFrame {
 
         javafx.scene.control.Button srcButton = new javafx.scene.control.Button("Filter");
         srcButton.setFont(menuFont);
-        srcButton.setOnAction((javafx.event.ActionEvent t) -> {
-            runFilter();
-        });
+        srcButton.setOnAction(unused -> runFilter());
         grid.add(srcButton, 4, 3);
         
         // sets up button to clear filter
         javafx.scene.control.Button clearButton = new javafx.scene.control.Button("Clear Filter");
         clearButton.setFont(menuFont);
-        clearButton.setOnAction((javafx.event.ActionEvent t) -> {
+        clearButton.setOnAction(unused -> {
             clearFilterInternal();
             runFilter();
         });
@@ -1095,15 +1090,15 @@ public final class ScrLexicon extends PFrame {
 
     @Override
     public void dispose() {
-        if (this.canClose()) {
-            saveAllValues();
-            killLogoChild();
-            PolyGlot.getPolyGlot().getOptionsManager().setDividerPosition(getClass().getName(), jSplitPane1.getDividerLocation());
-            if (formConstructor != null && !formConstructor.isDisposed()) {
-                formConstructor.dispose();
-            }
-            super.dispose();
+        saveAllValues();
+        killLogoChild();
+        PolyGlot.getPolyGlot()
+                .getOptionsManager()
+                .setDividerPosition(getClass().getName(), jSplitPane1.getDividerLocation());
+        if(formConstructor != null && !formConstructor.isDisposed()) {
+            formConstructor.dispose();
         }
+        super.dispose();
     }
     
     @Override
@@ -1154,13 +1149,7 @@ public final class ScrLexicon extends PFrame {
 
             @Override
             public void removeUpdate(DocumentEvent e) {
-                genProc();
-                genRom();
-                setWordLegality();
-                if (isFilterBlank()) {
-                    // if filter is in place, do not trigger a rerender of the values
-                    saveName();
-                }
+                insertUpdate(e);
             }
 
             @Override
@@ -1183,11 +1172,7 @@ public final class ScrLexicon extends PFrame {
 
             @Override
             public void removeUpdate(DocumentEvent e) {
-                setWordLegality();
-                if (isFilterBlank()) {
-                    // if filter is in place, do not trigger a rerender of the values
-                    saveName();
-                }
+                insertUpdate(e);
             }
 
             @Override
@@ -1245,19 +1230,19 @@ public final class ScrLexicon extends PFrame {
 
         lstLexicon.addMouseMotionListener(new MouseMotionListener() {
             @Override
-            public void mouseDragged(MouseEvent e) {
-            }
+            public void mouseDragged(MouseEvent e) {/* noop */}
 
             @Override
             public void mouseMoved(MouseEvent e) {
-                JList theList = (JList) e.getSource();
-                ListModel model = theList.getModel();
+                @SuppressWarnings("unchecked") // Reified generics, should be safe
+                var theList = (JList<ConWordDisplay>) e.getSource();
+                var model = theList.getModel();
                 int index = theList.locationToIndex(e.getPoint());
                 String tip = DEF_LEX_VALUE;
                 
                 if (index > -1) {
                     try {
-                        ConWord curWord = ((ConWordDisplay)model.getElementAt(index)).getConWord();
+                        ConWord curWord = model.getElementAt(index).getConWord();
                         tip = curWord.getWordSummaryValue(enableProcGen);
                     } catch (Exception ex) {
                         DesktopIOHandler.getInstance().writeErrorLog(ex);
@@ -1336,11 +1321,7 @@ public final class ScrLexicon extends PFrame {
             if (curWord == null) {
                 if (!namePopulating) {
                     namePopulating = true;
-                    try {
-                        txtConWord.setText("");
-                    } catch (Exception e) {
-                        DesktopIOHandler.getInstance().writeErrorLog(e);
-                    }
+                    txtConWord.setText("");
                     namePopulating = false;
                 }
                 txtLocalWord.setText("");
@@ -1353,11 +1334,7 @@ public final class ScrLexicon extends PFrame {
             } else {
                 if (!namePopulating) {
                     namePopulating = true;
-                    try {
-                        txtConWord.setText(curWord.getValue());
-                    } catch (Exception e) {
-                        DesktopIOHandler.getInstance().writeErrorLog(e);
-                    }
+                    txtConWord.setText(curWord.getValue());
                     namePopulating = false;
                 }
                 txtDefinition.setText(curWord.getDefinition());
@@ -1380,9 +1357,9 @@ public final class ScrLexicon extends PFrame {
                 setPropertiesEnabled(true);
             }
         } catch (IllegalArgumentException e) {
-            // IOHandler.writeErrorLog(e);
             enableProcGen = false;
-        } catch (Exception e) {
+            DesktopIOHandler.getInstance().writeErrorLog(e);
+        } catch (RuntimeException e) {
             DesktopIOHandler.getInstance().writeErrorLog(e);
             core.getOSHandler().getInfoBox().error("Error", "Error: " + e.getLocalizedMessage());
         }
@@ -1408,8 +1385,8 @@ public final class ScrLexicon extends PFrame {
             btnDeclensions.setEnabled(enable);
             btnLogographs.setEnabled(enable && btnLogoShouldEnable());
             btnEtymology.setEnabled(enable);
-            classPropMap.values().forEach((classComp) -> {
-                if (classComp instanceof PComboBox classCombo) {
+            classPropMap.values().forEach(classComp -> {
+                if (classComp instanceof PComboBox<?> classCombo) {
                     classCombo.setEnabled(enable && classCombo.getModel().getSize() > 1);
                 } else if (classComp != null) {
                     classComp.setEnabled(enable);
@@ -1490,13 +1467,8 @@ public final class ScrLexicon extends PFrame {
             try {
                 ConWord curWord = getCurrentWord();
 
-                try {
-                    if (curWord != null) {
-                        saveValuesTo(curWord);
-                    }
-                } catch (Exception e) {
-                    DesktopIOHandler.getInstance().writeErrorLog(e);
-                    core.getOSHandler().getInfoBox().error("Error", "Error: " + e.getLocalizedMessage());
+                if (curWord != null) {
+                    saveValuesTo(curWord);
                 }
 
                 curPopulating = false;
@@ -1508,8 +1480,9 @@ public final class ScrLexicon extends PFrame {
 
                 curPopulating = true;
                 lstLexicon.setSelectedValue(curWord, true);
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 DesktopIOHandler.getInstance().writeErrorLog(e);
+                core.getOSHandler().getInfoBox().error("Error", "Error: " + e.getLocalizedMessage());
             }
             namePopulating = false;
             curPopulating = false;
@@ -1535,7 +1508,7 @@ public final class ScrLexicon extends PFrame {
         saveWord.setRulesOverride(chkRuleOverride.isSelected());
         Object curType = cmbType.getSelectedItem();
         if (curType != null) {
-            if (((PComboBox)cmbType).isDefaultValue()) {
+            if (((PComboBox<?>)cmbType).isDefaultValue()) {
                 saveWord.setWordTypeId(0);
             } else {
                 saveWord.setWordTypeId(((TypeNode) curType).getId());
@@ -1543,10 +1516,10 @@ public final class ScrLexicon extends PFrame {
         }
 
         // save all class values
-        classPropMap.entrySet().forEach((entry) -> {
+        classPropMap.entrySet().forEach(entry -> {
             if (entry.getValue() instanceof PTextField textField) {
                 saveWord.setClassTextValue(entry.getKey(), textField.getText());
-            } else if (entry.getValue() instanceof PComboBox comboBox) {
+            } else if (entry.getValue() instanceof PComboBox<?> comboBox) {
                 Object selectedItem = comboBox.getSelectedItem();
                 
                 if (selectedItem instanceof DictNode curValue) {
@@ -1566,7 +1539,6 @@ public final class ScrLexicon extends PFrame {
      */
     private void deleteWord() {
         var localPopulating = curPopulating;
-        var filterBlank = isFilterBlank();
         var curSelection = lstLexicon.getSelectedIndex();
         
         curPopulating = true;
@@ -1599,8 +1571,8 @@ public final class ScrLexicon extends PFrame {
         var localDoNotSave = doNotSave;
         try {            
             doNotSave = true;
-            
-            if (!filterBlank) {    
+
+            if (!isFilterBlank()) {
                 filterLexicon();
             }
 
@@ -1656,9 +1628,9 @@ public final class ScrLexicon extends PFrame {
         logoQuick.setVisible(true);
         logoQuick.addWindowListener(new WindowListener(){
             @Override
-            public void windowOpened(WindowEvent e) {}
+            public void windowOpened(WindowEvent e) {/* noop*/}
             @Override
-            public void windowClosing(WindowEvent e) {}
+            public void windowClosing(WindowEvent e) {/* noop*/}
 
             @Override
             public void windowClosed(WindowEvent e) {
@@ -1667,13 +1639,13 @@ public final class ScrLexicon extends PFrame {
             }
 
             @Override
-            public void windowIconified(WindowEvent e) {}
+            public void windowIconified(WindowEvent e) {/* noop*/}
             @Override
-            public void windowDeiconified(WindowEvent e) {}
+            public void windowDeiconified(WindowEvent e) {/* noop*/}
             @Override
-            public void windowActivated(WindowEvent e) {}
+            public void windowActivated(WindowEvent e) {/* noop*/}
             @Override
-            public void windowDeactivated(WindowEvent e) {}
+            public void windowDeactivated(WindowEvent e) {/* noop*/}
         });
     }
 
@@ -1697,10 +1669,8 @@ public final class ScrLexicon extends PFrame {
      *
      * @param r
      */
-    private void wrapPlatformRunnable(final Runnable r) {
-        SwingUtilities.invokeLater(() -> {
-            Platform.runLater(r);
-        });
+    private static void wrapPlatformRunnable(final Runnable r) {
+        SwingUtilities.invokeLater(() -> Platform.runLater(r));
     }
     
     private void openFormHelper() {
@@ -1716,15 +1686,13 @@ public final class ScrLexicon extends PFrame {
         var menu = new JPopupMenu();
         var allConj = new JMenuItem("Open Conjugations");
         allConj.setToolTipText("Edit or view declined/conjugated forms of your words here.");
-        allConj.addActionListener((ActionEvent e) -> {
+        allConj.addActionListener(unused -> {
             viewDeclensions();
             setWordLegality();
         });
         var formHelper = new JMenuItem("Form Composition Helper");
         formHelper.setToolTipText("Opens Form Composition Helper (very helpful for agglutinative languages)");
-        formHelper.addActionListener((ActionEvent e) -> {
-            openFormHelper();
-        });
+        formHelper.addActionListener(unused -> openFormHelper());
         
         menu.add(allConj);
         menu.add(formHelper);
@@ -1736,6 +1704,7 @@ public final class ScrLexicon extends PFrame {
      * This method is called from within the constructor to initialize the form. WARNING: Do NOT modify this code. The
      * content of this method is always regenerated by the Form Editor.
      */
+    @SuppressWarnings("all" /* autogenerated method, don't bother */)
     // <editor-fold defaultstate="collapsed" desc="Generated Code">//GEN-BEGIN:initComponents
     private void initComponents() {
 
@@ -1746,7 +1715,7 @@ public final class ScrLexicon extends PFrame {
         jPanel3 = new javax.swing.JPanel();
         txtConWord = new PTextField(core, false, "Conlang Word");
         txtLocalWord = new PTextField(core, true, core.localLabel() + " Word");
-        cmbType = new PComboBox(((DesktopPropertiesManager)core.getPropertiesManager()).getFontLocal(), "-- Part of Speech --", core);
+        cmbType = new PComboBox<>(((DesktopPropertiesManager)core.getPropertiesManager()).getFontLocal(), "-- Part of Speech --", core);
         txtProc = new PTextField(core, true, "Pronunciation");
         chkProcOverride = new PCheckBox(nightMode);
         chkRuleOverride = new PCheckBox(nightMode);
@@ -1771,8 +1740,10 @@ public final class ScrLexicon extends PFrame {
         setEnabled(false);
         setMinimumSize(new java.awt.Dimension(500, 450));
         addWindowFocusListener(new java.awt.event.WindowFocusListener() {
-            public void windowGainedFocus(java.awt.event.WindowEvent evt) {
-            }
+            @Override
+            public void windowGainedFocus(java.awt.event.WindowEvent evt) {/* noop */}
+            
+            @Override
             public void windowLostFocus(java.awt.event.WindowEvent evt) {
                 formWindowLostFocus(evt);
             }
@@ -2055,6 +2026,7 @@ public final class ScrLexicon extends PFrame {
         pack();
     }// </editor-fold>//GEN-END:initComponents
 
+    @SuppressWarnings("all" /* autogenerated method, don't bother */)
     private void lstLexiconValueChanged(javax.swing.event.ListSelectionEvent evt) {//GEN-FIRST:event_lstLexiconValueChanged
         if (evt.getValueIsAdjusting()
                 || namePopulating
@@ -2090,6 +2062,7 @@ public final class ScrLexicon extends PFrame {
         }
     }//GEN-LAST:event_lstLexiconValueChanged
 
+    @SuppressWarnings("all" /* autogenerated method, don't bother */)
     private void btnAddWordActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnAddWordActionPerformed
         Platform.runLater(() -> {
             try {
@@ -2105,25 +2078,30 @@ public final class ScrLexicon extends PFrame {
         });
     }//GEN-LAST:event_btnAddWordActionPerformed
 
+    @SuppressWarnings("all" /* autogenerated method, don't bother */)
     private void btnDelWordActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnDelWordActionPerformed
         Platform.runLater(()->{
             deleteWord();
         });
     }//GEN-LAST:event_btnDelWordActionPerformed
 
+    @SuppressWarnings("all" /* autogenerated method, don't bother */)
     private void btnDeclensionsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnDeclensionsActionPerformed
         viewDeclensions();
         setWordLegality();
     }//GEN-LAST:event_btnDeclensionsActionPerformed
 
+    @SuppressWarnings("all" /* autogenerated method, don't bother */)
     private void btnLogographsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnLogographsActionPerformed
         viewQuickLogographs();
     }//GEN-LAST:event_btnLogographsActionPerformed
 
+    @SuppressWarnings("all" /* autogenerated method, don't bother */)
     private void lstLexiconFocusGained(java.awt.event.FocusEvent evt) {//GEN-FIRST:event_lstLexiconFocusGained
         lstLexicon.repaint();
     }//GEN-LAST:event_lstLexiconFocusGained
 
+    @SuppressWarnings("all" /* autogenerated method, don't bother */)
     private void formWindowLostFocus(java.awt.event.WindowEvent evt) {//GEN-FIRST:event_formWindowLostFocus
         ConWord curWord = getCurrentWord();
         if (curWord != null) {
@@ -2131,10 +2109,12 @@ public final class ScrLexicon extends PFrame {
         }
     }//GEN-LAST:event_formWindowLostFocus
 
+    @SuppressWarnings("all" /* autogenerated method, don't bother */)
     private void chkRuleOverrideActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_chkRuleOverrideActionPerformed
         setWordLegality();
     }//GEN-LAST:event_chkRuleOverrideActionPerformed
 
+    @SuppressWarnings("all" /* autogenerated method, don't bother */)
     private void cmbTypeActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_cmbTypeActionPerformed
         final Object typeObject = cmbType.getSelectedItem();
 
@@ -2150,10 +2130,12 @@ public final class ScrLexicon extends PFrame {
         }
     }//GEN-LAST:event_cmbTypeActionPerformed
 
+    @SuppressWarnings("all" /* autogenerated method, don't bother */)
     private void jButton1ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton1ActionPerformed
         ScrQuickWordEntry.run(core, this);
     }//GEN-LAST:event_jButton1ActionPerformed
 
+    @SuppressWarnings("all" /* autogenerated method, don't bother */)
     private void btnEtymologyActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnEtymologyActionPerformed
         new ScrEtymRoots(core, getCurrentWord()).setVisible(true);
     }//GEN-LAST:event_btnEtymologyActionPerformed
